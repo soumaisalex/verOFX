@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualizador OFX por Alex Passos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Efeito Zebrado e Transições */
+        tbody tr:nth-child(even) { background-color: #f8fafc; }
+        tbody tr:nth-child(odd) { background-color: #ffffff; }
+        
+        /* Classe para o efeito de arrastar arquivo sobre a página */
+        .drag-over {
+            background-color: #cbd5e1 !important; /* Slate 300 */
+            outline: 4px dashed #64748b;
+            outline-offset: -10px;
+        }
+    </style>
+</head>
+<body id="dropZone" class="bg-slate-200 min-h-screen p-4 md:p-8 text-slate-800 font-sans transition-colors duration-200 flex flex-col">
+    
+    <div class="max-w-5xl mx-auto flex-grow w-full">
+        <header class="mb-10 text-center">
+            <h1 class="text-3xl font-extrabold text-slate-700">Visualizador de Extrato OFX</h1>
+            <p class="text-slate-500 mt-2">Arraste seu arquivo em qualquer lugar desta página</p>
+        </header>
+
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-300 mb-8">
+            <label class="block mb-3 text-sm font-bold text-slate-600 uppercase tracking-tight">Carregar Arquivo</label>
+            <input type="file" id="ofxInput" accept=".ofx" class="block w-full text-sm text-slate-500
+                file:mr-4 file:py-2.5 file:px-6
+                file:rounded-lg file:border-0
+                file:text-sm file:font-bold
+                file:bg-slate-700 file:text-white
+                hover:file:bg-slate-800 cursor-pointer"/>
+        </div>
+
+        <div id="resultArea" class="hidden space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="bg-blue-100 p-6 rounded-2xl shadow-sm border border-blue-200">
+                    <p class="text-xs text-blue-600 uppercase font-black mb-1">Instituição</p>
+                    <p id="infoBank" class="text-lg font-bold text-blue-900 truncate">-</p>
+                </div>
+                <div class="bg-emerald-100 p-6 rounded-2xl shadow-sm border border-emerald-200">
+                    <p class="text-xs text-emerald-600 uppercase font-black mb-1">Agência</p>
+                    <p id="infoBranch" class="text-lg font-bold text-emerald-900">-</p>
+                </div>
+                <div class="bg-purple-100 p-6 rounded-2xl shadow-sm border border-purple-200">
+                    <p class="text-xs text-purple-600 uppercase font-black mb-1">Conta Corrente</p>
+                    <p id="infoAccount" class="text-lg font-bold text-purple-900">-</p>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-md border border-slate-300 overflow-hidden mb-12">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full">
+                        <thead>
+                            <tr class="bg-slate-700 text-white">
+                                <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest">Data</th>
+                                <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest">Descrição</th>
+                                <th class="px-6 py-4 text-right text-xs font-bold uppercase tracking-widest">Valor (R$)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="mt-auto py-8 text-center border-t border-slate-300">
+        <p class="text-slate-600 font-medium">
+            Desenvolvido por 
+            <a href="https://www.instagram.com/soumaisalex" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 font-bold underline decoration-2 underline-offset-4">
+                Alex Passos
+            </a>
+        </p>
+    </footer>
+
+    <script>
+        const listaBancos = {
+            "001": "Banco do Brasil", "003": "Banco da Amazônia", "004": "Banco do Nordeste",
+            "007": "BNDES", "010": "Credicoamo Crédito Rural Cooperativa", "011": "Credit Suisse Hedging-Griffo CV",
+            "012": "Banco Inbursa", "014": "Natixis Brasil", "017": "BNY Mellon Banco", "018": "Banco Tricury",
+            "021": "Banestes", "024": "Bandepe", "025": "Banco Alfa", "029": "Itaú Consignado", "033": "Santander",
+            "036": "Bradesco BBI", "037": "Banpará", "040": "Banco Cargill", "041": "Banrisul", "047": "Banese",
+            "060": "Confidence Corretora de Câmbio", "062": "Hipercard Banco Múltiplo", "063": "Bradescard",
+            "064": "Goldman Sachs", "065": "Banco Andbank", "066": "Banco Morgan Stanley", "069": "Crefisa",
+            "070": "Banco de Brasília (BRB)", "074": "Banco J. Safra", "075": "Banco ABN AMRO",
+            "076": "Banco KDB do Brasil", "077": "Banco Inter", "082": "Banco Topázio", "083": "Banco da China Brasil",
+            "084": "Uniprime Norte do Paraná", "085": "Ailos", "089": "Cooperativa de Crédito Mogiana",
+            "091": "Unicred", "092": "BRK Crédito", "093": "Pólocred", "094": "Banco Finaxis", "095": "Banco Travelex",
+            "096": "Banco B3", "097": "Credisis", "098": "Credialiança", "099": "Uniprime Central",
+            "100": "Planner Corretora de Valores", "101": "Renascença DTVM", "102": "XP Investimentos",
+            "104": "Caixa Econômica Federal", "107": "BOCOM BBM", "108": " ortoCred", "111": "Oliveira Trust",
+            "113": "Magliano", "114": "Cecoop", "117": "Advanced Corretora de Câmbio", "119": " estern Union",
+            "120": "Rodobens", "121": "Agibank", "122": "Bradesco BERJ", "124": "Banco Woori Bank",
+            "125": "Brasil  lural", "126": "BR Partners", "128": "Braza Bank", "129": "UBS Brasil",
+            "130": "Caruana SCFI", "131": "Tullett Prebon  rasil CVC", "132": "ICBC do Brasil", "133": "Cresol",
+            "134": "BGC Liquidez DTVM", "136": "Unicred do Brasil", "138": "Get  oney CC", "139": "Intesa Sanpaolo",
+            "140": "Easynvest", "142": "Broker Brasil CC", "143": "Treviso CC", "144": "Bexs Banco  e Câmbio",
+            "145": "Levycam CCV", "146": "Guitta CC", "149": "Facta Financeira CFI", "157": "ICAP do Brasil",
+            "159": "Casa do Crédito", "163": "Commerzbank", "169": "Banco Olé", "172": "Albatross CCV",
+            "173": "BRL Trust DTVM", "174": " efisa CFFI", "177": "Guide", "180": "CM Capital Markets",
+            "182": "Dacasa Financeira", "183": "Socred SCMEPP", "184": "Itaú  BA", "188": "Ativa Investimentos",
+            "189": "HS Financeira", "190": "Cooperativa dos Servidores do RS", "191": "Nova  utura CTVM",
+            "193": "Clearbank", "194": "Parmetal", "196": "Fair CC", "197": "Stone Pagamentos",
+            "0197": "Stone Pagamentos" "208": "BTG Pactual", "212": "Banco Original", "213": "Banco Arbi",
+            "217": "Banco John Deere", "218": "Banco BS2", "222": "Crédit Agricole", "224": "Banco Fibra",
+            "233": "Banco Cifra", "237": "Banco Bradesco", "241": "Banco Clássico", "243": "Banco Máxima",
+            "246": "Banco ABC Brasil", "249": "Investcred Unibanco", "250": "Banco de Crédito e Varejo",
+            "253": "Bexs Corretora de Câmbio", "254": "Paraná Banco", "259": "Moneycorp Banco de Câmbio",
+            "260": "Nu Pagamentos (Nubank)", "265": "Banco Fator", "266": "Banco Cédula", "268": "Barigui Companhia Hipotecária",
+            "269": "HSBC Bank Brasil", "270": "Sagitur CC", "271": "IB CCTVM", "272": "AGK CC", "273": "Sulcredi",
+            "274": "BMP Money Plus",
+            "276": "Senff",
+            "278": "Genial Investimentos",
+            "279": "Primacred",
+            "280": "Avista Crédito, Financiamento e Investimento",
+            "281": "Cooperativa de Crédito Rural Coopavel",
+            "283": "RB Capital Investimentos DTVM",
+            "285": "Frente CC",
+            "286": "Sulcredi",
+            "288": "Carol DTVM",
+            "289": "EFX CC",
+            "290": "PagSeguro Internet",
+            "292": "BS2",
+            "293": "Lastro RDV DTVM",
+            "296": "OZ Corretora de Câmbio",
+            "298": "Vip's CC",
+            "299": "Sorocred",
+            "300": "Banco de la Nacion Argentina",
+            "301": "BPP Instituição de Pagamento",
+            "306": "Portopar DTVM",
+            "307": "Terra Investimentos DTVM",
+            "309": "Cambionet CC",
+            "310": "VORTX DTVM",
+            "312": "Hscm SCM",
+            "313": "Amazônia Corretora de Câmbio",
+            "315": "PI Distribuidora de Títulos e Valores Mobiliários",
+            "318": "Banco BMG",
+            "319": "OM DTVM",
+            "320": "China Construction Bank Banco Múltiplo",
+            "321": "Crefaz SCM",
+            "322": "Cooperativa de Crédito Rural de Abelardo Luz — Sulcredi",
+            "323": "Mercado Pago — Conta do Mercado Livre",
+            "324": "Cartos SCD",
+            "325": "Órama DTVM",
+            "326": "Parati — CFI",
+            "328": "Trustee DTVM",
+            "329": "QI SCD",
+            "330": "Ótimo SCD",
+            "331": "Fram Capital DTVM",
+            "332": "Acesso Soluções de Pagamento",
+            "335": "Banco Digio",
+            "336": "Banco C6",
+            "340": "Super Pagamentos e Administração de Meios Eletrônicos",
+            "341": "Itaú Unibanco",
+            "342": "Creditas SCD",
+            "348": "Banco XP",
+            "349": "AL5 Crédito, Financiamento e Investimento",
+            "355": "Ótimo SCD",
+            "358": "MIDWAY SCFI",
+            "359": "Zema CFI S/A",
+            "360": "Trinus Capital DTVM",
+            "362": "Cielo",
+            "363": "Singulare CTVM",
+            "364": "Gerencianet",
+            "365": "Simpaul Corretora de Câmbio e Valores Mobiliários",
+            "366": "Société Générale Brasil",
+            "367": "Vitreo DTVM",
+            "368": "Banco CSF",
+            "370": "Banco Mizuho do Brasil",
+            "371": "Warren CVMC",
+            "373": "UP.P SEP",
+            "374": "Realize CFI",
+            "376": "Banco J. P. Morgan",
+            "377": "BMS SCD",
+            "378": "BBC Leasing",
+            "379": "Magnum SCD",
+            "380": "PicPay Serviços",
+            "381": "Banco Mercedes-Benz do Brasil",
+            "382": "Fiducia SCMEPP",
+            "383": "Ebanx IP",
+            "384": "Global SCM",
+            "385": "Asaas IP",
+            "386": "Nu Financeira CFI",
+            "387": "Banco Toyota do Brasil",
+            "389": "Banco Mercantil do Brasil",
+            "390": "Banco GM",
+            "391": "CCR Coopcentral",
+            "394": "Bradesco Financiamentos",
+            "395": "F.D'Gold — DTVM",
+            "396": "Hub IP",
+            "397": "Liqpay IP",
+            "398": "Ideal CTVM",
+            "399": "Kirton Bank",
+            "400": "Cooperativa de Crédito, Poupança e Investimento de Região de Muriaé",
+            "401": "Iugu Instituição de Pagamento",
+            "402": "Cobuccio SCD",
+            "403": "Cora SCD",
+            "404": "Sumup SCD",
+            "406": "Accredito SCD",
+            "407": "Índigo Investimentos DTVM",
+            "408": "Bonuspago SCD",
+            "410": "Planner Sociedade de Crédito ao Microempreendedor",
+            "411": "Via Certa Financiadora CFFI",
+            "412": "Banco Capital",
+            "413": "CIP CC",
+            "414": "Work SCD",
+            "415": "Lamara SCD",
+            "418": "Zipdin SCD",
+            "419": "Numbrs SCD",
+            "421": "Leve SCD",
+            "422": "Banco Safra",
+            "423": "Coluna DTVM",
+            "425": "Socinal CFI",
+            "426": "Biorc Financeira CFI",
+            "427": "Cresol Confederação",
+            "428": "Credsystem SCD",
+            "429": "Crediare CFI",
+            "430": "RB Investimentos DTVM",
+            "433": "BR-Capital DTVM",
+            "435": "Delcred SCD",
+            "436": "Planner Trustee DTVM",
+            "438": "Planner Invest CVMC",
+            "439": "ID CTVM",
+            "440": "Credibelo SCD",
+            "441": "Bcredi IP",
+            "442": "Magnetis DTVM",
+            "443": "Credihome SCD",
+            "444": "Trinus SCD",
+            "445": "Plantae CFI",
+            "447": "Mirae Asset CCTVM",
+            "448": "Hemera DTVM",
+            "449": "DM Corretora de Câmbio",
+            "450": "Fitbank IP",
+            "451": "J17 SCD",
+            "452": "Credifit SCD",
+            "453": "Mérito DTVM",
+            "454": "Mérito SCD",
+            "455": "Fênix DTVM",
+            "456": "Banco MUFG Brasil",
+            "457": "UY3 SCD S/A",
+            "458": "Hedge Investments DTVM",
+            "459": "CCM Serv. Ref. Saúde S/A",
+            "460": "Unavanti SCD S/A",
+            "461": "Asaas Gestão Financeira IP",
+            "462": "Stark SCD",
+            "463": "Azumi DTVM",
+            "464": "Banco Sumitomo Mitsui Brasileiro",
+            "465": "Capital Consig SCD",
+            "467": "Master S/A Corretora de Câmbio, Títulos e Valores Mobiliários",
+            "468": "Portoseg CFI",
+            "469": "Picpay Bank — Banco Múltiplo",
+            "470": "CDC SCD",
+            "471": "Cecm dos Funcionários do Banco Central do Brasil",
+            "473": "Caixa Geral — Brasil",
+            "477": "Citibank N.A.",
+            "478": "Gazincred SCFI",
+            "479": "ItaúBank",
+            "481": "Superlógica SCD",
+            "484": "MAF DTVM",
+            "487": "Deutsche Bank — Banco Alemão",
+            "488": "JPMorgan Chase Bank, National Association",
+            "492": "ING Bank N.V.",
+            "495": "Banco de la Provincia de Buenos Aires",
+            "505": "Credit Suisse Banco Múltiplo",
+            "509": "Celcoin IP",
+            "511": "Magalu Pagamentos",
+            "512": "Finvest DTVM",
+            "513": "ATF Credit SCD",
+            "514": "Parana Cooperativo de Crédito e Economia com Interação Solidária (Paercial)",
+            "516": "Qista CFI",
+            "518": "Mercado Crédito SCFI",
+            "519": "Novo Banco Continental Banco Múltiplo",
+            "520": "BMPD SCD",
+            "521": "BCF Digital",
+            "523": "HR Digital — SCD",
+            "524": "WNT Capital DTVM",
+            "525": "Money Money SCFI",
+            "526": "Beeteller Instituição de Pagamento",
+            "527": "Aticca SCD",
+            "528": "Reag DTVM",
+            "529": "Pinbank IP",
+            "530": "Sarparsed SCD",
+            "531": "BMP SCD",
+            "532": "Valor SCD",
+            "533": "SRM Bank",
+            "534": "Ewally IP",
+            "535": "Opea SCD",
+            "536": "Neon Pagamentos IP",
+            "537": "Microcash SCMEPP",
+            "538": "Maré IP",
+            "539": "Santinvest CC e CFI",
+            "540": "HBI SCD",
+            "541": "Fundo Nacional de Desenvolvimento",
+            "543": "Cooperativa de Crédito Mútuo dos Servidores da UFPel",
+            "545": "Senso Corretora de Câmbio e Valores Mobiliários",
+            "546": "U4C Instituição de Pagamento",
+            "548": "RPW S/A SCFI",
+            "549": "Intra Invest CTVM",
+            "550": "Beeteller IP",
+            "556": "Gazin IP",
+            "558": "Vert Capital SCD",
+            "559": "Zro Pagamentos",
+            "560": "Men's SCD",
+            "561": "Pay4Fun IP",
+            "562": "Naeon Finance SCD",
+            "563": "Grão Direto CTVM",
+            "565": "Versobank IP",
+            "566": "Sumup IP",
+            "568": "Atar CCMEP",
+            "569": "Qi Tech SCD",
+            "578": "BS2 SCD",
+            "579": "Ideal Bank SCD",
+            "580": "Boa Compra SCM",
+            "581": "CCMEP — Cooperativa de Crédito Mútuo dos Empregados de Petrobras",
+            "582": "FTI CFI",
+            "583": "Vortx Serviços Fiduciários",
+            "586": "CWB Bola SCD",
+            "588": "Prover Promovendas CFI",
+            "589": "Vr Benefícios e Pagamentos",
+            "600": "Banco Luso Brasileiro",
+            "604": "Banco Industrial do Brasil",
+            "610": "Banco VR",
+            "611": "Banco Paulista",
+            "612": "Banco Guanabara",
+            "613": "Omni Banco",
+            "623": "Banco Pan",
+            "626": "Banco C6 Consignado",
+            "630": "Letsbank",
+            "633": "Banco Rendimento",
+            "634": "Banco Triângulo",
+            "637": "Banco Sofisa",
+            "643": "Banco Pine",
+            "652": "Itaú Unibanco Holding",
+            "653": "Banco Indusval",
+            "654": "Banco Digimais",
+            "655": "Banco Votorantim",
+            "707": "Banco Daycoval",
+            "712": "Banco Ourinvest",
+            "719": "Banif — Bco Int. do Funchal",
+            "735": "Banco Neon",
+            "739": "Banco Cetelem",
+            "741": "Banco Ribeirão Preto",
+            "743": "Banco Semear",
+            "745": "Citibank",
+            "746": "Banco Modal",
+            "747": "Rabobank International do Brasil",
+            "748": "Banco Cooperativo Sicredi",
+            "751": "Scotiabank Brasil",
+            "752": "Banco BNP Paribas Brasil",
+            "753": "NBC Bank Brasil",
+            "755": "Bank of America Merrill Lynch", "756": "Sicoob",
+            "757": "Banco KEB Hana do Brasil",
+        };
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('ofxInput');
+
+        // Lógica de Seleção via Input
+        fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+
+        // Lógica de Arrastar e Soltar (Drag and Drop) em toda a página
+        ['dragenter', 'dragover'].forEach(eventName => {
+            window.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropZone.classList.add('drag-over');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            window.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('drag-over');
+            }, false);
+        });
+
+        window.addEventListener('drop', (e) => {
+            const file = e.dataTransfer.files[0];
+            if (file && file.name.toLowerCase().endsWith('.ofx')) {
+                handleFile(file);
+            } else {
+                alert("Por favor, arraste apenas arquivos .ofx");
+            }
+        });
+
+        function handleFile(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.readAsText(file, "ISO-8859-1");
+            reader.onload = (e) => parseOFX(e.target.result);
+        }
+
+        function parseOFX(data) {
+            const bankCode = (getTagValue(data, 'BANKID') || "").padStart(3, '0');
+            const bankName = listaBancos[bankCode] || "Banco não identificado";
+            
+            document.getElementById('infoBank').innerText = `${bankCode} - ${bankName}`;
+            document.getElementById('infoBranch').innerText = getTagValue(data, 'BRANCHID') || 'N/A';
+            document.getElementById('infoAccount').innerText = getTagValue(data, 'ACCTID') || 'N/A';
+
+            const tableBody = document.getElementById('tableBody');
+            tableBody.innerHTML = '';
+            
+            const transactionRegex = /<STMTTRN>([\s\S]*?)<\/STMTTRN>/g;
+            let match;
+            let count = 0;
+
+            while ((match = transactionRegex.exec(data)) !== null) {
+                count++;
+                const block = match[1];
+                const rawDate = getTagValue(block, 'DTPOSTED');
+                const memo = getTagValue(block, 'MEMO') || getTagValue(block, 'NAME');
+                const amount = getTagValue(block, 'TRNAMT');
+
+                const row = document.createElement('tr');
+                const dateFormatted = rawDate ? `${rawDate.substring(6,8)}/${rawDate.substring(4,6)}/${rawDate.substring(0,4)}` : '--/--/----';
+                const isNegative = amount.includes('-');
+                
+                row.className = "border-b border-slate-200 last:border-0 hover:bg-slate-100 transition-colors";
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 font-medium">${dateFormatted}</td>
+                    <td class="px-6 py-4 text-sm text-slate-700 font-semibold">${memo}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold ${isNegative ? 'text-red-600' : 'text-emerald-700'}">
+                        ${parseFloat(amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            }
+
+            if(count > 0) {
+                document.getElementById('resultArea').classList.remove('hidden');
+                window.scrollTo({ top: document.getElementById('resultArea').offsetTop - 20, behavior: 'smooth' });
+            }
+        }
+
+        function getTagValue(content, tag) {
+            const regex = new RegExp(`<${tag}>([^<\\n\\r]+)`, 'i');
+            const match = content.match(regex);
+            return match ? match[1].trim() : '';
+        }
+    </script>
+</body>
+</html>
